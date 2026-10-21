@@ -1476,3 +1476,540 @@ public class InventoryLockService {
 > "In my current implementation, `rollback` is best-effort — if `releaseLock` returns `false` (e.g., already released by another thread), I just skip it. In production, I'd add **logging and alerting** for rollback failures. For stronger guarantees, I'd persist the rollback intent to a database or message queue so it can be retried by a background job."
 
 ---
+
+
+# Karat Mock Question 3: NotificationDispatcher (Multi-Channel Notification System)
+
+> **Interview Round**: 30-minute Coding Round  
+> **Level**: Mid-level (GCB5)  
+> **Focus**: Concurrency, idempotency, async processing, retry logic, duplicate prevention, throughput
+
+---
+
+## Background
+
+You maintain a `NotificationDispatcher` for an e-commerce platform. It sends order updates to users via Email, SMS, and Push notifications. The system must handle high throughput and retry transient failures. Currently, users complain about **duplicate notifications** and **slow response times** from the API. Your task is to identify the bugs, fix them, and add a new feature.
+
+**Requirements**:
+- Send notifications via Email / SMS / Push
+- Prevent duplicate sends for the same `notificationId`
+- Retry failed sends (max 3 attempts)
+- Support high-throughput dispatch
+- Return quickly to the caller (non-blocking)
+
+---
+
+## Original Code (Buggy Version)
+
+```java
+import java.util.*;
+import java.util.concurrent.*;
+
+class Notification {
+    private String notificationId;
+    private String userId;
+    private String channel; // "EMAIL", "SMS", "PUSH"
+    private String message;
+    private int retryCount;
+
+    public Notification(String notificationId, String userId, String channel, String message) {
+        this.notificationId = notificationId;
+        this.userId = userId;
+        this.channel = channel;
+        this.message = message;
+        this.retryCount = 0;
+    }
+
+    public String getNotificationId() { return notificationId; }
+    public String getUserId() { return userId; }
+    public String getChannel() { return channel; }
+    public String getMessage() { return message; }
+    public int getRetryCount() { return retryCount; }
+    public void incrementRetry() { retryCount++; }
+}
+
+class EmailSender {
+    public boolean send(String userId, String message) {
+        System.out.println("Sending email to " + userId + ": " + message);
+        return true;
+    }
+}
+
+class SmsSender {
+    public boolean send(String userId, String message) {
+        System.out.println("Sending SMS to " + userId + ": " + message);
+        return true;
+    }
+}
+
+class PushSender {
+    public boolean send(String userId, String message) {
+        System.out.println("Sending push to " + userId + ": " + message);
+        return true;
+    }
+}
+
+public class NotificationDispatcher {
+    private Map<String, Notification> sentCache;
+    private EmailSender emailSender;
+    private SmsSender smsSender;
+    private PushSender pushSender;
+
+    public NotificationDispatcher() {
+        this.sentCache = new HashMap<>();
+        this.emailSender = new EmailSender();
+        this.smsSender = new SmsSender();
+        this.pushSender = new PushSender();
+    }
+
+    public boolean dispatch(Notification notification) {
+        // Check if already sent
+        if (sentCache.containsKey(notification.getNotificationId())) {
+            return false;
+        }
+
+        boolean success = false;
+        String channel = notification.getChannel();
+
+        if (channel.equals("EMAIL")) {
+            success = emailSender.send(notification.getUserId(), notification.getMessage());
+        } else if (channel.equals("SMS")) {
+            success = smsSender.send(notification.getUserId(), notification.getMessage());
+        } else if (channel.equals("PUSH")) {
+            success = pushSender.send(notification.getUserId(), notification.getMessage());
+        }
+
+        if (success) {
+            sentCache.put(notification.getNotificationId(), notification);
+            return true;
+        } else {
+            notification.incrementRetry();
+            if (notification.getRetryCount() < 3) {
+                dispatch(notification); // retry
+            }
+            return false;
+        }
+    }
+
+    public List<String> getSentNotificationIds() {
+        List<String> result = new ArrayList<>();
+        for (String id : sentCache.keySet()) {
+            result.add(id);
+        }
+        return result;
+    }
+}
+```
+
+---
+
+## Step 1: Bug Identification — Detailed English Answers
+
+### Bug #1: `sentCache` check-then-act is not atomic → Duplicate notifications (Most Critical)
+
+**Detailed Verbal Answer:**
+
+> "The most critical bug causing duplicate notifications is in the `dispatch` method. It does `sentCache.containsKey(notificationId)` followed by `sentCache.put(notificationId, notification)` on success. These are two separate operations with no synchronization.
+>
+> Under concurrency, two threads can simultaneously check `containsKey` for the same `notificationId` and both get `false`. Both threads then proceed to send the notification — one via Email, another might also send Email — causing **duplicate notifications**. This is a classic **TOCTOU (Time-Of-Check-To-Time-Of-Use)** race condition.
+>
+> The fix is to use `ConcurrentHashMap.putIfAbsent()`, which is atomic. If the key already exists, it returns the existing value instead of `null`, and we can short-circuit without sending. This guarantees **idempotency** at the cache level."
+
+**Key vocabulary**: TOCTOU race condition, idempotency, check-then-act, putIfAbsent, atomic operation, duplicate prevention
+
+---
+
+### Bug #2: `HashMap` is not thread-safe
+
+**Detailed Verbal Answer:**
+
+> "`sentCache` is a plain `HashMap`. Multiple threads calling `dispatch` concurrently will do `containsKey`, `put`, and `getSentNotificationIds` does `keySet()` iteration — all unsafe. `HashMap` can corrupt its internal structure under concurrent modification, causing infinite loops (JDK 7) or `ConcurrentModificationException`.
+>
+> Fix: replace with `ConcurrentHashMap`. It supports concurrent reads and safe `putIfAbsent`."
+
+**Key vocabulary**: ConcurrentModificationException, internal structure corruption, ConcurrentHashMap, thread-safe iteration
+
+---
+
+### Bug #3: Recursive retry without returning result
+
+**Detailed Verbal Answer:**
+
+> "On failure, the code calls `dispatch(notification)` recursively but **doesn't return its result**. So even if the retry succeeds inside the recursive call, the original caller still receives `false`. This is a **logic error** — the retry work is wasted from the API consumer's perspective.
+>
+> Also, recursion without a base case limit could cause `StackOverflowError` if retries keep failing and `retryCount` is somehow not incremented properly. The current code does increment, but the recursion depth is bounded by `retryCount < 3`, so max depth is 3 — acceptable but poor design."
+
+**Key vocabulary**: logic error, wasted retry, StackOverflowError, recursion depth, base case
+
+---
+
+### Bug #4: No delay / backoff between retries
+
+**Detailed Verbal Answer:**
+
+> "When `dispatch` fails, it immediately calls itself recursively. This is a **tight retry loop** — if the downstream Email/SMS service is down or throttling, hammering it instantly makes things worse. It also blocks the calling thread, contributing to **slow response times**.
+>
+> Proper retry logic should use **exponential backoff with jitter** — wait a bit before retrying (e.g., 1s, 2s, 4s). In an async model, retries should be scheduled on a separate thread or a message queue."
+
+**Key vocabulary**: tight retry loop, exponential backoff, jitter, throttling, downstream service
+
+---
+
+### Bug #5: Blocking I/O in dispatch method → Slow response times
+
+**Detailed Verbal Answer:**
+
+> "The `dispatch` method calls `emailSender.send()`, `smsSender.send()`, or `pushSender.send()` **synchronously**. These are network I/O calls that can take hundreds of milliseconds or even seconds. The calling thread is blocked until the send completes (or times out). Under high throughput, this exhausts the thread pool quickly, causing **slow response times** and **thread starvation**.
+>
+> Fix: make `dispatch` **asynchronous**. Use a `ThreadPoolExecutor` or `CompletableFuture` to offload the actual sending to a background thread. Return immediately to the caller with an `CompletableFuture<Boolean>` or a correlation ID."
+
+**Key vocabulary**: blocking I/O, synchronous call, thread starvation, offload, CompletableFuture, non-blocking
+
+---
+
+### Bug #6: `sentCache` grows indefinitely → Memory leak
+
+**Detailed Verbal Answer:**
+
+> "`sentCache` never evicts entries. Over time, as millions of notifications are sent, the map grows unbounded, causing **memory leaks** and eventually `OutOfMemoryError`.
+>
+> Fix: use a `ConcurrentHashMap` with a **size limit** (e.g., via `LinkedHashMap` with LRU, or a proper caching library like Caffeine). Alternatively, add a `TTL` and periodically clean up old entries. For production, this cache should be in Redis or a database, not in-memory."
+
+**Key vocabulary**: memory leak, OutOfMemoryError, unbounded growth, LRU eviction, TTL, Caffeine cache
+
+---
+
+### Bug #7: Unknown channel handling → Wasted retries
+
+**Detailed Verbal Answer:**
+
+> "If `channel` is not EMAIL/SMS/PUSH (e.g., typo like 'email' lowercase, or 'WEBHOOK'), `success` stays `false`. The code then retries up to 3 times — but it will **never succeed** because the channel is invalid. This wastes retry attempts and delays the failure response.
+>
+> Fix: validate the channel upfront. If unknown, fail fast without retrying."
+
+**Key vocabulary**: fail fast, invalid channel, wasted retry attempts, upfront validation
+
+---
+
+### Bug #8: No `equals`/`hashCode` on `Notification`
+
+**Detailed Verbal Answer:**
+
+> "`Notification` is used as a value in `sentCache`, but it doesn't override `equals` and `hashCode`. If someone retrieves from cache and compares, reference equality is used. While not directly causing a bug here (we key by `notificationId`), it's a code smell and can cause subtle bugs if the cache is ever changed to use `Notification` as key."
+
+**Key vocabulary**: reference equality, code smell, subtle bugs
+
+---
+
+## Step 2: Fix + New Feature — Detailed English Answers
+
+### New Requirement
+
+> Add `dispatchAsync(Notification notification)` — asynchronous dispatch with:
+> - Returns `CompletableFuture<Boolean>` immediately
+> - Uses a thread pool for actual sending
+> - Retries with **exponential backoff** (max 3 attempts, delays: 1s, 2s, 4s)
+> - Deduplication via `ConcurrentHashMap.putIfAbsent`
+> - Proper shutdown hook via `shutdown()` method
+
+### Fully Fixed & Enhanced Code
+
+```java
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * Represents a notification with thread-safe retry tracking.
+ */
+class Notification {
+    private final String notificationId;
+    private final String userId;
+    private final String channel;
+    private final String message;
+    private final AtomicInteger retryCount;  // FIX: thread-safe retry counter
+
+    public Notification(String notificationId, String userId, String channel, String message) {
+        this.notificationId = notificationId;
+        this.userId = userId;
+        this.channel = channel;
+        this.message = message;
+        this.retryCount = new AtomicInteger(0);
+    }
+
+    public String getNotificationId() { return notificationId; }
+    public String getUserId() { return userId; }
+    public String getChannel() { return channel; }
+    public String getMessage() { return message; }
+    public int getRetryCount() { return retryCount.get(); }
+    public int incrementAndGetRetry() { return retryCount.incrementAndGet(); }  // FIX: atomic
+    public void resetRetry() { retryCount.set(0); }
+}
+
+/**
+ * Sender interfaces (simulated).
+ */
+class EmailSender {
+    public boolean send(String userId, String message) {
+        System.out.println("Sending email to " + userId + ": " + message);
+        return true; // simulate success
+    }
+}
+
+class SmsSender {
+    public boolean send(String userId, String message) {
+        System.out.println("Sending SMS to " + userId + ": " + message);
+        return true;
+    }
+}
+
+class PushSender {
+    public boolean send(String userId, String message) {
+        System.out.println("Sending push to " + userId + ": " + message);
+        return true;
+    }
+}
+
+/**
+ * Thread-safe, async notification dispatcher with retry and deduplication.
+ */
+public class NotificationDispatcher {
+
+    private final Map<String, Notification> sentCache;  // FIX: ConcurrentHashMap
+    private final EmailSender emailSender;
+    private final SmsSender smsSender;
+    private final PushSender pushSender;
+    private final ExecutorService executor;  // FIX: thread pool for async dispatch
+    private static final int MAX_RETRIES = 3;
+    private static final List<Long> BACKOFF_DELAYS_MS = Arrays.asList(1000L, 2000L, 4000L); // 1s, 2s, 4s
+
+    public NotificationDispatcher() {
+        this.sentCache = new ConcurrentHashMap<>();  // FIX: thread-safe
+        this.emailSender = new EmailSender();
+        this.smsSender = new SmsSender();
+        this.pushSender = new PushSender();
+        this.executor = Executors.newFixedThreadPool(10);  // FIX: dedicated pool
+    }
+
+    /**
+     * Synchronous dispatch (legacy, kept for backward compatibility).
+     * FIX: now uses putIfAbsent for deduplication, validates channel, no recursion.
+     */
+    public boolean dispatch(Notification notification) {
+        // FIX: atomic deduplication check
+        Notification existing = sentCache.putIfAbsent(notification.getNotificationId(), notification);
+        if (existing != null) {
+            return false; // already sent
+        }
+
+        String channel = notification.getChannel();
+        if (!isValidChannel(channel)) {
+            sentCache.remove(notification.getNotificationId()); // clean up
+            return false; // invalid channel, fail fast
+        }
+
+        boolean success = sendViaChannel(notification, channel);
+        if (success) {
+            return true;
+        } else {
+            sentCache.remove(notification.getNotificationId()); // allow retry
+            notification.incrementAndGetRetry();
+            return false;
+        }
+    }
+
+    /**
+     * NEW FEATURE: Asynchronous dispatch with exponential backoff retry.
+     */
+    public CompletableFuture<Boolean> dispatchAsync(Notification notification) {
+        // FIX: atomic deduplication
+        Notification existing = sentCache.putIfAbsent(notification.getNotificationId(), notification);
+        if (existing != null) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        String channel = notification.getChannel();
+        if (!isValidChannel(channel)) {
+            sentCache.remove(notification.getNotificationId());
+            return CompletableFuture.completedFuture(false);
+        }
+
+        // Submit to thread pool
+        return CompletableFuture.supplyAsync(() -> {
+            return sendWithRetry(notification, channel);
+        }, executor);
+    }
+
+    /**
+     * Send with exponential backoff retry.
+     */
+    private boolean sendWithRetry(Notification notification, String channel) {
+        int attempt = 0;
+        while (attempt < MAX_RETRIES) {
+            boolean success = sendViaChannel(notification, channel);
+            if (success) {
+                return true;
+            }
+            attempt++;
+            notification.incrementAndGetRetry();
+            if (attempt < MAX_RETRIES) {
+                try {
+                    // Exponential backoff
+                    Thread.sleep(BACKOFF_DELAYS_MS.get(attempt - 1));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        // All retries exhausted
+        sentCache.remove(notification.getNotificationId()); // allow future retry
+        return false;
+    }
+
+    private boolean sendViaChannel(Notification notification, String channel) {
+        switch (channel) {
+            case "EMAIL":
+                return emailSender.send(notification.getUserId(), notification.getMessage());
+            case "SMS":
+                return smsSender.send(notification.getUserId(), notification.getMessage());
+            case "PUSH":
+                return pushSender.send(notification.getUserId(), notification.getMessage());
+            default:
+                return false;
+        }
+    }
+
+    private boolean isValidChannel(String channel) {
+        return "EMAIL".equals(channel) || "SMS".equals(channel) || "PUSH".equals(channel);
+    }
+
+    public List<String> getSentNotificationIds() {
+        return new ArrayList<>(sentCache.keySet()); // FIX: safe copy
+    }
+
+    /**
+     * NEW: Graceful shutdown.
+     */
+    public void shutdown() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+}
+```
+
+### Detailed Verbal Walkthrough (What to say while coding):
+
+> "I'm starting with the most visible issue — duplicate notifications. The original code uses `containsKey` then `put`, which is not atomic. I'm replacing it with `ConcurrentHashMap.putIfAbsent()`. This is a single atomic operation: if the key already exists, it returns the existing `Notification` object; if not, it puts the new one and returns `null`. So I check `if (existing != null)` → return `false` immediately. This guarantees **idempotency**.
+>
+> Next, I'm changing `sentCache` from `HashMap` to `ConcurrentHashMap` for thread-safe operations.
+>
+> For the retry logic, the original uses recursion which is problematic. I'm replacing it with a `while` loop in `sendWithRetry` that does up to `MAX_RETRIES` attempts. Between failures, I add `Thread.sleep` with **exponential backoff** delays (1s, 2s, 4s). This prevents hammering the downstream service.
+>
+> I'm adding a `dispatchAsync` method that returns `CompletableFuture<Boolean>`. It does the deduplication check, validates the channel, then submits the actual send work to a `ThreadPoolExecutor` via `CompletableFuture.supplyAsync`. This makes the API **non-blocking** — the caller gets a future immediately and can check the result later or attach a callback.
+>
+> I changed `retryCount` from `int` to `AtomicInteger` for thread-safe increments, though in the async model each notification is processed by one thread at a time, so it's less critical — but still good practice.
+>
+> I added `isValidChannel` to fail fast on unknown channels, preventing wasted retries.
+>
+> I added a `shutdown` method to gracefully terminate the thread pool — important for production services.
+>
+> Finally, `getSentNotificationIds` now returns a new `ArrayList` copy of the key set to avoid `ConcurrentModificationException` if the caller iterates while the cache is modified."
+
+---
+
+## Step 3: Testing + Analysis — Detailed English Answers
+
+### Test Cases (Verbal with numbers)
+
+> "Let me walk through five test cases.
+>
+> **Test Case 1 — Normal dispatch (sync).** Create notification ID 'N001', channel 'EMAIL'. Call `dispatch`. `putIfAbsent` returns `null`, send succeeds, returns `true`. `sentCache` contains 'N001'. This verifies happy path.
+>
+> **Test Case 2 — Duplicate prevention.** Call `dispatch` with 'N001' again. `putIfAbsent` returns the existing notification (not null), method returns `false` immediately without calling `emailSender.send`. This verifies **idempotency**.
+>
+> **Test Case 3 — Async dispatch with success.** Call `dispatchAsync` with ID 'N002', channel 'SMS'. Returns a `CompletableFuture`. In background, SMS send succeeds, future completes with `true`. `sentCache` has 'N002'. This verifies async non-blocking behavior.
+>
+> **Test Case 4 — Retry with backoff.** Mock `PushSender.send` to fail twice then succeed on third attempt. Call `dispatchAsync` with ID 'N003', channel 'PUSH'. The `sendWithRetry` loop fails first attempt, sleeps 1s, fails second, sleeps 2s, succeeds third. Future completes with `true`. Total time ≈ 3 seconds. This verifies exponential backoff.
+>
+> **Test Case 5 — Invalid channel fail-fast.** Call `dispatch` with channel 'WEBHOOK'. `isValidChannel` returns `false`, `sentCache` entry removed, returns `false` immediately. No retry attempted. This verifies fail-fast.
+>
+> **Test Case 6 — All retries exhausted.** Mock `EmailSender.send` to always fail. Call `dispatchAsync` with ID 'N004'. After 3 attempts (0, 1, 2) with backoff sleeps, future completes with `false`. `sentCache` removes 'N004'. This verifies retry exhaustion."
+
+### Complexity Analysis (Detailed)
+
+> "Let me analyze the complexity.
+>
+> **`dispatch` (sync)**: Time complexity is **O(1)** average — `putIfAbsent` is O(1) for `ConcurrentHashMap`, and `sendViaChannel` is O(1) (network call excluded from algorithmic complexity). Space complexity is **O(n)** where n is total unique notifications stored in `sentCache`.
+>
+> **`dispatchAsync`**: Time complexity is **O(1)** for the initial check and submission. The actual send happens asynchronously; the retry loop in `sendWithRetry` is **O(R)** where R = `MAX_RETRIES` (constant, so O(1)). Space complexity is **O(1)** for the future object, plus **O(n)** for cache.
+>
+> **`sendWithRetry`**: Time complexity is **O(R)** where R is max retries (constant 3). With backoff sleeps, wall-clock time is O(2^R) but computational complexity is O(1). Space complexity is **O(1)**.
+>
+> **`getSentNotificationIds`**: Time complexity is **O(n)** to copy keys into a new list. Space complexity is **O(n)** for the returned list.
+>
+> **Overall cache**: Space grows with number of notifications. In production, should add TTL/LRU to bound it."
+
+### Distributed Scenario (Detailed)
+
+> "Now, if this service runs on 3 servers behind a load balancer, does `ConcurrentHashMap.putIfAbsent` still prevent duplicates?
+>
+> **No, it does not.** `ConcurrentHashMap` is JVM-local. If Server A and Server B both receive a dispatch request for the same `notificationId` at the same time, each has its own `sentCache`. Both do `putIfAbsent`, both get `null`, both send — duplicates again.
+>
+> To fix this in a distributed environment, I'd use one of these approaches:
+>
+> 1. **Redis `SETNX` with TTL** — `SET notification:sent:{id} 1 NX EX 86400`. Atomic, distributed, auto-expires. This is the most common solution for idempotency keys.
+>
+> 2. **Database unique constraint** — Insert into a `sent_notifications` table with `notification_id` as primary key. If duplicate, insert fails with constraint violation. Strongest consistency but slower.
+>
+> 3. **Distributed lock** — Acquire a lock on `notificationId` via Redis `SETNX` or Redisson `RLock` before checking/sending. Heavier but works for complex multi-step flows.
+>
+> 4. **Idempotency header** — Require clients to send an `Idempotency-Key` header. Store it in Redis. If the same key arrives, return the cached response without reprocessing.
+>
+> My recommendation: use **Redis `SETNX`** for deduplication. It's atomic, fast, and supports TTL so the cache doesn't grow forever. For the async processing, use a **message queue** (Kafka/RabbitMQ) so that even if one server dies, the notification is still processed by another consumer."
+
+---
+
+## Key English Expressions Cheat Sheet
+
+| Situation | Detailed Phrases |
+|---|---|
+| Spotting duplicate bug | "This is a **TOCTOU race condition** — `containsKey` and `put` are separate operations. Two threads can both pass the check and both send, causing **duplicate notifications**." |
+| Proposing putIfAbsent | "I'll use `ConcurrentHashMap.putIfAbsent()` — it's an **atomic check-and-put** operation. If the key exists, it returns the existing value; otherwise it inserts and returns `null`. This guarantees **idempotency**." |
+| Blocking I/O problem | "Synchronous network calls **block the calling thread**, causing **thread starvation** under high throughput. We need to **offload** to a thread pool." |
+| Async solution | "I'm adding `dispatchAsync` returning `CompletableFuture<Boolean>`. It submits work to an `ExecutorService` and returns immediately — **non-blocking**." |
+| Retry improvement | "Instead of **tight recursive retry**, I'm implementing **exponential backoff with jitter** — wait 1s, 2s, 4s between attempts to avoid **hammering** the downstream service." |
+| Fail-fast | "I added **upfront validation** for the channel. If it's invalid, we **fail fast** without wasting retry attempts." |
+| Memory leak | "`sentCache` grows **unbounded**. I'd add a **TTL** or use a **caching library** like Caffeine with **LRU eviction**." |
+| Distributed fix | "`ConcurrentHashMap` is **JVM-local**. For multi-server, I'd use **Redis `SETNX`** with TTL for distributed **idempotency**." |
+| Graceful shutdown | "I added a `shutdown` method that calls `executor.shutdown()` and waits for **graceful termination** with a timeout." |
+
+---
+
+## Bonus: Interviewer Follow-up Questions & Model Answers
+
+**Q: "What if the Email service succeeds but the thread crashes before `putIfAbsent`?"**
+
+> "That's a great point. If the send succeeds but we crash before marking it in cache, on retry we'd send again — a **duplicate**. To make this truly exactly-once, we need **transactional outbox** or **idempotency on the receiver side**. Most email/SMS providers support idempotency keys — we can pass `notificationId` as their idempotency key. Then even if we send twice, they deduplicate. Alternatively, we persist the sent status to a database **before** sending, but that adds latency. The pragmatic approach: rely on receiver-side idempotency for at-least-once delivery."
+
+**Q: "How would you handle 1 million notifications per minute?"**
+
+> "At that scale, in-memory `ConcurrentHashMap` won't scale — memory and CPU contention. I'd move to a **distributed message queue** (Kafka) with multiple consumer groups. The API just publishes to Kafka (O(1), very fast). Consumers process sends asynchronously with their own thread pools. Deduplication is done via Redis `SETNX` with TTL. For retries, use a **dead-letter queue** (DLQ) — after max retries, move to DLQ for manual inspection. This decouples ingestion from processing and scales horizontally."
+
+**Q: "What about notification ordering? If a user gets 'Order Shipped' before 'Order Confirmed'?"**
+
+> "Good question. If ordering matters, we need to **partition by userId** so all notifications for a user go to the same Kafka partition and are processed sequentially. This guarantees **per-user ordering**. Alternatively, add a `sequenceNumber` and have the client reorder, but that's complex. Partitioning by `userId` hash is the standard solution."
+
+**Q: "How do you monitor this system?"**
+
+> "I'd add metrics: `notification_sent_total` (counter, tagged by channel), `notification_failed_total`, `notification_retried_total`, `dispatch_latency_ms` (histogram), and `duplicate_prevented_total`. Use a dashboard (Grafana) with alerts on failure rate spikes. Also log every send attempt with correlation ID for tracing."
+
+---
+
