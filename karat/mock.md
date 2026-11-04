@@ -1,4 +1,4 @@
-# Karat Mock Question: DiscountService (E-commerce Discount System)
+# karaat Mock Question: DiscountService (E-commerce Discount System)
 
 > **Interview Round**: 30-minute Coding Round  
 > **Level**: Mid-level (GCB5)  
@@ -447,7 +447,7 @@ public class DiscountService {
 
 
 
-# Karat Mock Question 2: InventoryLockService (Flash-Sale Inventory Locking System)
+# karaat Mock Question 2: InventoryLockService (Flash-Sale Inventory Locking System)
 
 > **Interview Round**: 30-minute Coding Round  
 > **Level**: Mid-level (GCB5)  
@@ -962,7 +962,7 @@ public class InventoryLockService {
 
 ---
 
-*Generated for HSBC GCB5 Karat Prep | 2026-10-18*# Karat Mock Question 2: InventoryLockService (Flash-Sale Inventory Locking System)
+*Generated for HCCC GCB5 karaat Prep | 2026-10-18*# karaat Mock Question 2: InventoryLockService (Flash-Sale Inventory Locking System)
 
 > **Interview Round**: 30-minute Coding Round  
 > **Level**: Mid-level (GCB5)  
@@ -1478,7 +1478,7 @@ public class InventoryLockService {
 ---
 
 
-# Karat Mock Question 3: NotificationDispatcher (Multi-Channel Notification System)
+# karaat Mock Question 3: NotificationDispatcher (Multi-Channel Notification System)
 
 > **Interview Round**: 30-minute Coding Round  
 > **Level**: Mid-level (GCB5)  

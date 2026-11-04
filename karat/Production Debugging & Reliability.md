@@ -1,4 +1,4 @@
-# Karat Production Debugging & Reliability — 20 Drill Questions (中英对照 + 中文解题说明 + 英文口语答案)
+# karaat Production Debugging & Reliability — 20 Drill Questions (中英对照 + 中文解题说明 + 英文口语答案)
 
 ---
 

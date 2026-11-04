@@ -1,4 +1,4 @@
-# Karat Capacity Estimation — 全量题库 (Q1–Q19) 中英对照 + 中文解题说明 + 英文口语答案
+# karaat Capacity Estimation — 全量题库 (Q1–Q19) 中英对照 + 中文解题说明 + 英文口语答案
 
 ---
 

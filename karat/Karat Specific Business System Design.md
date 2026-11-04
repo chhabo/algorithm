@@ -1,4 +1,4 @@
-# Karat Specific Business System Design — 20 Drill Questions (面试详版)
+# karaat Specific Business System Design — 20 Drill Questions (面试详版)
 
 ---
 

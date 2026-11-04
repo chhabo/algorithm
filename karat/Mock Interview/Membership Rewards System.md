@@ -1,4 +1,4 @@
-# HSBC Karat Mock Interview — Question 2 (Membership Rewards System)
+# HCCC karaat Mock Interview — Question 2 (Membership Rewards System)
 
 ## Part 1 — Interview Questions (all rounds)
 
@@ -43,7 +43,7 @@ public class Membership {
 "`ConcurrentHashMap.merge()` silently inserts a new entry when the key does not exist. So calling `addPoints` with a non-existent member would create that member — which violates the business rule. How do you fix it, and how do you say this in English?"
 
 **Round 4 — Extension: tiered membership**
-"HSBC wants a tiered system. Members start at **Silver**. At **1,000** points they are promoted to **Gold**, at **5,000** to **Platinum**.
+"HCCC wants a tiered system. Members start at **Silver**. At **1,000** points they are promoted to **Gold**, at **5,000** to **Platinum**.
 1. Add `getTier(String memberId)` returning `"Silver" | "Gold" | "Platinum"`.
 2. Promotion must happen automatically inside `addPoints` — no separate method.
 3. Thread-safety must be maintained.
@@ -231,7 +231,7 @@ For the tier extension, the cleanest design is to wrap points and tier into one 
 
 For `transferPoints`, we now touch two users, so I must prevent deadlock. I sort the two IDs and always acquire the lock for the 'smaller' ID first, then the larger one, and release them in reverse order. That gives a consistent global lock order and eliminates circular wait even if A transfers to B while B simultaneously transfers to A. Inside the locked block I validate both users exist, check the sender has enough points, deduct, credit with an overflow guard, and recalculate **both** users' tiers before returning `true`. Any failed check returns `false` with no partial mutation.
 
-The trade-off is that the `userLocks` map grows forever unless we evict idle locks, and a hot account serializes all its updates — but for a Karat-level answer this is correct, deadlock-free, and keeps the legacy schema intact. In real HSBC production I'd push this down to a database transaction with `SELECT ... FOR UPDATE` and let the DB handle row-level locking and deadlock detection, instead of managing an application-level lock map."
+The trade-off is that the `userLocks` map grows forever unless we evict idle locks, and a hot account serializes all its updates — but for a karaat-level answer this is correct, deadlock-free, and keeps the legacy schema intact. In real HCCC production I'd push this down to a database transaction with `SELECT ... FOR UPDATE` and let the DB handle row-level locking and deadlock detection, instead of managing an application-level lock map."
 
 **Short follow-up answers**
 

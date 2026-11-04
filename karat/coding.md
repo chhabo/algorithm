@@ -1,5 +1,5 @@
 ================================================================================
-HSBC Karat 模拟面试完整复盘
+HCCC karaat 模拟面试完整复盘
 ================================================================================
 
 ================================================================================
@@ -209,7 +209,7 @@ private Map<String, BigDecimal> accounts = new ConcurrentHashMap<>();
 七、问题 6：Per-User Lock 弱点
 ================================================================================
 
-面试官提问：Per-user lock 方案在 HSBC 规模下的弱点是什么？
+面试官提问：Per-user lock 方案在 HCCC 规模下的弱点是什么？
 
 --- 用户原始回答 ---
 
@@ -229,7 +229,7 @@ private Map<String, BigDecimal> accounts = new ConcurrentHashMap<>();
 
 --- 面试推荐口语版（正确版） ---
 
-"The first weakness is that the lock map grows forever, causing a memory leak. The second is unnecessary contention: when Thread A holds user A's lock while waiting for user B's lock, any other thread wanting to transfer to or from user A gets blocked immediately—even though Thread A hasn't actually updated anything yet. At HSBC scale, this would severely limit throughput for frequently used accounts."
+"The first weakness is that the lock map grows forever, causing a memory leak. The second is unnecessary contention: when Thread A holds user A's lock while waiting for user B's lock, any other thread wanting to transfer to or from user A gets blocked immediately—even though Thread A hasn't actually updated anything yet. At HCCC scale, this would severely limit throughput for frequently used accounts."
 
 面试官纠正：第二部分理解有误——Thread A 持有 user A 锁期间，其他涉及 user A 的转账会被阻塞，造成不必要的锁竞争。
 
@@ -315,7 +315,7 @@ private final Map<String, Lock> accountLocks = new ConcurrentHashMap<>();
 | 事件溯源 | 只追加交易记录，余额从日志计算 |
 | 按账户分片 | 每个分片顺序处理该账户交易 |
 
-Karat 最佳回答：使用数据库行级锁 + 事务。
+karaat 最佳回答：使用数据库行级锁 + 事务。
 
 ================================================================================
 十、最终评分
@@ -338,5 +338,5 @@ Karat 最佳回答：使用数据库行级锁 + 事务。
 1. 金额处理铁律：BigDecimal + 字符串构造 + setScale(2) + compareTo
 2. 并发三板斧：ConcurrentHashMap 只保证单操作原子，check-then-act 必须加锁
 3. 死锁预防：多锁场景必须定义一致的获取顺序
-4. 边写边讲：Karat 极度看重沟通，每写一行说出意图
+4. 边写边讲：karaat 极度看重沟通，每写一行说出意图
 5. 生产意识：应用层锁是教学演示，生产用 DB 事务/乐观锁

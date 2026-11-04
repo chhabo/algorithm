@@ -1,4 +1,4 @@
-package karat;
+package karaat;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -62,19 +62,19 @@ class TradeReconcilerTest {
         TradeReconciler r = new TradeReconciler();
 
         List<Trade> booked = Arrays.asList(
-                new Trade("HSBC", Side.BUY,  100, "10.50"),
-                new Trade("HSBC", Side.SELL, 100, "10.50"),
+                new Trade("HCCC", Side.BUY,  100, "10.50"),
+                new Trade("HCCC", Side.SELL, 100, "10.50"),
                 new Trade("AAPL", Side.BUY,   50, "190.00")
         );
 
         List<Trade> settled = Arrays.asList(
-                new Trade("HSBC", Side.BUY, 100, "10.50")
+                new Trade("HCCC", Side.BUY, 100, "10.50")
         );
 
         List<Trade> unreconciled = r.reconcile(booked, settled);
 
-        // Expected: HSBC/SELL/100/10.50 and AAPL/BUY/50/190.00  -> size 2
-        // Actual  : size 1 — the HSBC SELL trade silently disappears
+        // Expected: HCCC/SELL/100/10.50 and AAPL/BUY/50/190.00  -> size 2
+        // Actual  : size 1 — the HCCC SELL trade silently disappears
         System.out.println("unreconciled = " + unreconciled.size() + " (expected 2)");
         unreconciled.forEach(System.out::println);
         if (unreconciled.size() != 2) throw new AssertionError("Reconciliation failed");

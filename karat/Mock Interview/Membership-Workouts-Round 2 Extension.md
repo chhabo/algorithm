@@ -1,4 +1,4 @@
-# HSBC Karat Mock Interview — Question 3 (Membership / Workouts), Round 2 Extension
+# HCCC karaat Mock Interview — Question 3 (Membership / Workouts), Round 2 Extension
 
 ## Part 1 — Interview Question
 
@@ -6,7 +6,7 @@
 
 **Round 2 — Extension requirement (verbatim from interviewer):**
 
-> "HSBC wants two new features on top of your fixed class:
+> "HCCC wants two new features on top of your fixed class:
 >
 > **1.** `get_average_workout_durations_by_type(String workoutType)` → `Map<String, Double>`
 > Returns, per user, the average duration **only for workouts of that type**.
@@ -189,7 +189,7 @@ For `get_average_workout_durations_by_type`, I iterate over `entrySet()` once, f
 
 For `pay_due`, the dangerous part is check-then-act: two threads could both read a balance of 30, both pass the comparison, and both deduct — that's a lost update. Even though this method only touches one map, I use a per-user `ReentrantLock` obtained via `computeIfAbsent`, and do the existence check, the `compareTo` check, the subtraction and the `put` all inside the same critical section. Any failed check returns `false` before a single mutation happens. I normalise the incoming amount with `setScale(2, HALF_UP)`, I compare with `compareTo` rather than `equals` because `equals` also compares scale — `30.0` and `30.00` are not equal under `equals` — and I re-apply `setScale` after subtraction.
 
-On idempotency: a repeated identical call against a zero balance just returns `false`, so it can't double-charge. In a real HSBC system I'd go further and require an idempotency key or payment ID with a unique constraint, plus an audit row written inside the same transaction — that's why I chose an explicit lock over a `computeIfPresent` lambda, because it extends cleanly when a second map or an audit log has to move atomically with the balance.
+On idempotency: a repeated identical call against a zero balance just returns `false`, so it can't double-charge. In a real HCCC system I'd go further and require an idempotency key or payment ID with a unique constraint, plus an audit row written inside the same transaction — that's why I chose an explicit lock over a `computeIfPresent` lambda, because it extends cleanly when a second map or an audit log has to move atomically with the balance.
 
 The trade-off is the same as before: the `userLocks` map grows forever unless we evict idle locks, and a hot user serialises their own payments. For production I'd push this down to a database transaction with `SELECT ... FOR UPDATE` and let the DB handle row-level locking, deadlock detection and the audit trail."
 

@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Membership class for HSBC Rewards System
+ * Membership class for HCCC Rewards System
  * Thread-safe, null-safe, with overflow protection
  */
 public class Membership {

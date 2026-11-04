@@ -1,6 +1,6 @@
-# HSBC Karat Mock Interview — Question 4 (TradeReconciler)
+# HCCC karaat Mock Interview — Question 4 (TradeReconciler)
 
-**Source note:** Not a verbatim Karat item. Reconstructed from a 2026 Citi Karat public debrief (full Spring Boot source + failing test, root cause `equals/hashCode` keyed only on `symbol`). Same root cause, different symptom: here one trade silently disappears instead of returning an empty list. Method names `TradeReconciler` / `reconcile` are from the debrief; test data and the extension are added.
+**Source note:** Not a verbatim karaat item. Reconstructed from a 2026 Citi karaat public debrief (full Spring Boot source + failing test, root cause `equals/hashCode` keyed only on `symbol`). Same root cause, different symptom: here one trade silently disappears instead of returning an empty list. Method names `TradeReconciler` / `reconcile` are from the debrief; test data and the extension are added.
 
 ---
 
@@ -11,7 +11,7 @@
 2. "What's the difference between a checked and an unchecked exception in Java? Give one example of each."
 
 **Round 1 — Debugging**
-"Here is a trade reconciliation service. `reconcile()` should return every trade in `booked` with NO identical counterpart in `settled` — a match requires `symbol`, `side`, `quantity` and `price` to be identical. The test is failing: expected 2 unreconciled trades, actual 1 — the `HSBC/SELL` trade silently disappears. Review the class, find every bug, fix it, and explain out loud in English. Run through the failing test in your head and tell me exactly why that one trade vanishes."
+"Here is a trade reconciliation service. `reconcile()` should return every trade in `booked` with NO identical counterpart in `settled` — a match requires `symbol`, `side`, `quantity` and `price` to be identical. The test is failing: expected 2 unreconciled trades, actual 1 — the `HCCC/SELL` trade silently disappears. Review the class, find every bug, fix it, and explain out loud in English. Run through the failing test in your head and tell me exactly why that one trade vanishes."
 
 ```java
 import java.math.BigDecimal;
@@ -69,15 +69,15 @@ class TradeReconcilerTest {
     public static void main(String[] args) {
         TradeReconciler r = new TradeReconciler();
         List<Trade> booked = Arrays.asList(
-            new Trade("HSBC", Side.BUY,  100, "10.50"),
-            new Trade("HSBC", Side.SELL, 100, "10.50"),
+            new Trade("HCCC", Side.BUY,  100, "10.50"),
+            new Trade("HCCC", Side.SELL, 100, "10.50"),
             new Trade("AAPL", Side.BUY,   50, "190.00")
         );
         List<Trade> settled = Arrays.asList(
-            new Trade("HSBC", Side.BUY, 100, "10.50")
+            new Trade("HCCC", Side.BUY, 100, "10.50")
         );
         List<Trade> unreconciled = r.reconcile(booked, settled);
-        // Expected 2, actual 1 — HSBC/SELL silently disappears
+        // Expected 2, actual 1 — HCCC/SELL silently disappears
         System.out.println("unreconciled = " + unreconciled.size() + " (expected 2)");
         if (unreconciled.size() != 2) throw new AssertionError("Reconciliation failed");
     }
@@ -88,7 +88,7 @@ class TradeReconcilerTest {
 "One banking-specific detail: `BigDecimal.equals()` compares value **and scale**, so `"10.50"` and `"10.5"` are not equal. And `BigDecimal.hashCode()` is scale-sensitive too. If you fix `equals` with `compareTo` but forget `hashCode`, you reintroduce the same `HashSet` bug in a different form. How do you handle it?"
 
 **Round 2 — Extension requirement (verbatim)**
-"HSBC reconciliation isn't yes/no, it's **how many**. The same trade can appear multiple times in `booked` (partial fills) and in `settled`. `contains()` can't express counts.
+"HCCC reconciliation isn't yes/no, it's **how many**. The same trade can appear multiple times in `booked` (partial fills) and in `settled`. `contains()` can't express counts.
 
 Add:
 ```java
@@ -111,7 +111,7 @@ Rules:
 ## Part 2 — Final Code Implementation
 
 ```java
-package karat;
+package karaat;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -207,12 +207,12 @@ class TradeReconcilerTest {
         TradeReconciler r = new TradeReconciler();
 
         List<Trade> booked = Arrays.asList(
-                new Trade("HSBC", Side.BUY,  100, "10.50"),
-                new Trade("HSBC", Side.SELL, 100, "10.50"),
+                new Trade("HCCC", Side.BUY,  100, "10.50"),
+                new Trade("HCCC", Side.SELL, 100, "10.50"),
                 new Trade("AAPL", Side.BUY,   50, "190.00")
         );
         List<Trade> settled = Arrays.asList(
-                new Trade("HSBC", Side.BUY, 100, "10.50")
+                new Trade("HCCC", Side.BUY, 100, "10.50")
         );
 
         // Round 1 now passes: 2
@@ -223,18 +223,18 @@ class TradeReconcilerTest {
 
         // Round 2 demo: partial fills + scale normalisation
         List<Trade> booked2 = Arrays.asList(
-                new Trade("HSBC", Side.BUY, 100, "10.50"),
-                new Trade("HSBC", Side.BUY, 100, "10.5"),   // same trade, different scale
-                new Trade("HSBC", Side.BUY, 100, "10.50"),
+                new Trade("HCCC", Side.BUY, 100, "10.50"),
+                new Trade("HCCC", Side.BUY, 100, "10.5"),   // same trade, different scale
+                new Trade("HCCC", Side.BUY, 100, "10.50"),
                 new Trade("AAPL", Side.BUY,  50, "190.00")
         );
         List<Trade> settled2 = Arrays.asList(
-                new Trade("HSBC", Side.BUY, 100, "10.50"),
+                new Trade("HCCC", Side.BUY, 100, "10.50"),
                 new Trade("AAPL", Side.BUY,  50, "190.00"),
                 new Trade("AAPL", Side.BUY,  50, "190.00")  // settled-only -> ignored
         );
         Map<Trade, Integer> counts = r.reconcileCounts(booked2, settled2);
-        // Expected: {HSBC/BUY/100/10.50=2}   (3 booked - 1 settled; AAPL diff = -1 -> omitted)
+        // Expected: {HCCC/BUY/100/10.50=2}   (3 booked - 1 settled; AAPL diff = -1 -> omitted)
         counts.forEach((k, v) -> System.out.println(k + " -> " + v));
         System.out.println("null input -> " + r.reconcileCounts(null, settled2));
     }
@@ -245,7 +245,7 @@ class TradeReconcilerTest {
 
 | # | Issue | Fix |
 |---|---|---|
-| 1 | `equals`/`hashCode` used only `symbol` → `HSBC BUY` and `HSBC SELL` collapse into one `HashSet` bucket | Cover all 4 fields in **both** methods |
+| 1 | `equals`/`hashCode` used only `symbol` → `HCCC BUY` and `HCCC SELL` collapse into one `HashSet` bucket | Cover all 4 fields in **both** methods |
 | 2 | Only fixing `equals` (not `hashCode`) | Kept them as a pair via `Objects.hash(...)` |
 | 3 | `BigDecimal.equals` is scale-sensitive (`"10.50" != "10.5"`) | Normalise with `setScale(2, HALF_UP)` in the constructor — equals/hashCode need no change |
 | 4 | Tempting fix: `compareTo` in `equals` only | Rejected — `hashCode` would still be scale-sensitive and `HashSet.contains` breaks again |
@@ -267,7 +267,7 @@ Checked exceptions extend `Exception` but not `RuntimeException`, and the compil
 
 **Round 1 root cause**
 
-"`reconcile()` itself is correct — I didn't change it. The bug is in `Trade`: both `equals` and `hashCode` were built from `symbol` alone. When I construct `new HashSet<>(settled)`, the settled `HSBC/BUY` trade occupies the bucket for hash of `"HSBC"`. Then the booked `HSBC/SELL` trade produces the **same hash**, and `equals` compares only the symbol and says true — so `contains()` reports a match and the filter drops it. That's exactly why the test prints 1 instead of 2. It's a silent data-loss bug, which is worse than a crash in a banking system.
+"`reconcile()` itself is correct — I didn't change it. The bug is in `Trade`: both `equals` and `hashCode` were built from `symbol` alone. When I construct `new HashSet<>(settled)`, the settled `HCCC/BUY` trade occupies the bucket for hash of `"HCCC"`. Then the booked `HCCC/SELL` trade produces the **same hash**, and `equals` compares only the symbol and says true — so `contains()` reports a match and the filter drops it. That's exactly why the test prints 1 instead of 2. It's a silent data-loss bug, which is worse than a crash in a banking system.
 
 I fixed it by making both methods cover `symbol`, `side`, `quantity` and `price`, using `Objects.equals` and `Objects.hash` so they stay consistent and null-safe. I also kept the `this == o` fast path and the `getClass()` check; I'd mention to the interviewer that `instanceof Trade` is the looser alternative if subclasses are ever allowed.
 

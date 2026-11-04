@@ -1,4 +1,4 @@
-# Karat Data Modeling & Query Design — 20 Drill Questions (面试详版)
+# karaat Data Modeling & Query Design — 20 Drill Questions (面试详版)
 
 ---
 
